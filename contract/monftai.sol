@@ -9,7 +9,7 @@ contract AINFT is ERC721URIStorage, Ownable {
 
     constructor() ERC721("AI NFT", "AINFT") Ownable(msg.sender) {}
 
-    function mintNFT(address to, string memory tokenURI) public onlyOwner {
+    function mintNFT(address to, string memory tokenURI) public {
         _safeMint(to, nextTokenId);
         _setTokenURI(nextTokenId, tokenURI);
         nextTokenId++;
