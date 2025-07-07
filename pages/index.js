@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Toaster, toast } from 'sonner';
 import { Wind, Image as ImageIcon, Zap, CheckCircle, Link as LinkIcon } from 'lucide-react';
 import { BrowserProvider, Contract } from 'ethers';
+import { GoogleGenAI, Modality } from '@google/genai';
 
 // Add your Pinata API credentials here
 // Pinata API keys from environment variables
@@ -27,6 +28,8 @@ const MONAD_TESTNET_CONFIG = {
     blockExplorerUrls: ["https://testnet.monadexplorer.com/"],
 };
 
+const genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
 export default function Home() {
     
     
@@ -45,7 +48,7 @@ export default function Home() {
     const [isMinting, setIsMinting] = useState(false);
     const [mintedTx, setMintedTx] = useState(null);
 
-    const categories = ['Normal', 'Funny', 'Surreal', 'Pixel Art', 'Cartoon', 'Minimalist', 'Horror'];
+    const categories = ['Normal', 'Funny', 'Surreal', 'Pixel Art', 'Cartoon', 'Minimalist', 'Horror', '3D Style',];
 
     useEffect(() => {
         const handleAnnounceProvider = (event) => {
@@ -119,40 +122,91 @@ export default function Home() {
         if (!image1) return toast.error("Please upload at least the first image.");
         setIsGenerating(true);
         setGeneratedImage(null);
-        const toastId = toast.loading("AI is analyzing your images...");
+        let toastId = toast.loading("Step 1/2: Generating creative concept...");
 
         try {
-            let visionPromptText = `As a creative art director, analyze the provided image(s) and invent a single, unified scene that artistically blends their core elements. Do NOT just place them side-by-side. Based on the category "${category}", describe this new scene.`;
-            const parts = [{ text: visionPromptText }];
-            parts.push({ inlineData: { mimeType: "image/png", data: image1.split(',')[1] } });
-            if (image2) parts.push({ inlineData: { mimeType: "image/png", data: image2.split(',')[1] } });
-            
-            const geminiPayload = { contents: [{ role: "user", parts }] };
-            const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`;
-            const geminiResponse = await fetch(geminiApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(geminiPayload) });
-            if (!geminiResponse.ok) throw new Error("AI analysis failed.");
-            const geminiResult = await geminiResponse.json();
-            const imageDescription = geminiResult.candidates[0].content.parts[0].text;
-            
-            toast.loading("Generating your new image...", { id: toastId });
-            
-            const styleDescriptions = {
-                Normal: 'photorealistic, high detail', Funny: 'hilarious meme style, witty, cartoonish', 'Pixel Art': '16-bit pixel art, retro',
-                Surreal: 'dreamy, surreal, abstract', Cartoon: 'modern animated cartoon style', Minimalist: 'bold minimalist style, clean lines',
-                Horror: 'spooky horror style, dark atmosphere'
-            };
-            const finalPrompt = `Concept: ${imageDescription}. User prompt: ${prompt || 'none'}. Style: ${styleDescriptions[category]}.`;
-            
-            const imagenPayload = { instances: [{ prompt: finalPrompt }], parameters: { "sampleCount": 1 } };
-            const imagenApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`;
-            const imagenResponse = await fetch(imagenApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(imagenPayload) });
-            if (!imagenResponse.ok) throw new Error("AI image generation failed.");
-            const imagenResult = await imagenResponse.json();
+            // Step 1: Generate a creative prompt using gemini-2.0-flash (text only)
+            const userSpecificInstructions = prompt ? 
+                `The user has provided specific instructions that MUST be followed: "${prompt}"` :
+                '';
 
-            if (imagenResult.predictions?.[0]) {
-                setGeneratedImage(`data:image/png;base64,${imagenResult.predictions[0].bytesBase64Encoded}`);
-                toast.success("Image generated successfully!", { id: toastId });
-            } else { throw new Error("No image data received."); }
+            const analysisPrompt = `You are a professional art director and AI prompt engineer.
+
+You are given two character images and a scene category: "${category}".
+${userSpecificInstructions}
+
+Your task is to write a single, vivid, imaginative prompt that will be used directly in an AI image generator. The prompt must:
+
+- Combine the two characters into a single, shared scene that reflects the selected category
+- ${prompt ? `PRIMARY FOCUS: ${prompt}` : 'Invent a new, creative situation or action that logically fits the category'}
+- Make sure the characters' appearances remain 90% visually similar to the originals — same face, clothes, colors, style — but their pose or body movement may change naturally to suit the scene
+- Describe the environment, atmosphere, interaction, and setting in a way that is visually rich, logically consistent, and tailored to the category
+- ${prompt ? 'Make sure to incorporate these specific details from the user' : 'Feel free to be creative with the scene and interaction'}
+- Avoid adding random or out-of-context elements that don't support the story or mood
+
+⚠️ Output ONLY the final prompt text — no explanation, no titles, no lists. Write a single descriptive paragraph that can be passed directly into an image generation model.
+`;
+
+            const analysisParts = [{ text: analysisPrompt }];
+            analysisParts.push({ inlineData: { mimeType: "image/png", data: image1.split(',')[1] } });
+            if (image2) analysisParts.push({ inlineData: { mimeType: "image/png", data: image2.split(',')[1] } });
+            
+            // Generate the creative prompt
+            const analysisResponse = await genAI.models.generateContent({
+                model: "gemini-2.0-flash",
+                contents: [{
+                    role: "user",
+                    parts: analysisParts
+                }]
+            });
+
+            const generatedPrompt = analysisResponse.candidates?.[0]?.content?.parts[0]?.text;
+            if (!generatedPrompt) {
+                throw new Error("Failed to generate creative concept. Please try again.");
+            }
+
+            // Step 2: Use the generated prompt + original images to create the final image
+            toast.loading("Step 2/2: Creating your image...", { id: toastId });
+            
+            const imageParts = [
+                { text: generatedPrompt },
+                { inlineData: { mimeType: "image/png", data: image1.split(',')[1] } }
+            ];
+            
+            if (image2) {
+                imageParts.push({ inlineData: { mimeType: "image/png", data: image2.split(',')[1] } });
+            }
+            
+            // Generate the final image
+            const response = await genAI.models.generateContent({
+                model: "gemini-2.0-flash-preview-image-generation",
+                contents: [{
+                    role: "user",
+                    parts: imageParts
+                }],
+                config: {
+                    responseModalities: [Modality.TEXT, Modality.IMAGE]
+                }
+            });
+
+            // Process the response
+            const candidate = response.candidates?.[0];
+            if (!candidate) {
+                throw new Error("No valid response from the model");
+            }
+
+            // Find the image part in the response
+            const imagePart = candidate.content.parts.find(part => part.inlineData);
+            
+            if (!imagePart?.inlineData) {
+                const textPart = candidate.content.parts.find(part => part.text);
+                console.error("No image data in response. Text response:", textPart?.text);
+                throw new Error("The model did not generate an image. Please try again with different inputs.");
+            }
+            
+            // Set the generated image
+            setGeneratedImage(`data:image/png;base64,${imagePart.inlineData.data}`);
+            toast.success("Image generated successfully!", { id: toastId });
         } catch (error) {
             console.error("Generation failed:", error);
             toast.error(error.message || "An unknown error occurred.", { id: toastId });
@@ -261,7 +315,21 @@ export default function Home() {
                                 <select id="category" value={category} onChange={e => setCategory(e.target.value)} className="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 focus:ring-pink-500 focus:border-pink-500 transition">
                                     {categories.map(cat => <option key={cat}>{cat}</option>)}
                                 </select>
-                                <input type="text" id="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Optional: add details, e.g., 'in a neon city'" className="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 focus:ring-pink-500 focus:border-pink-500 transition"/>
+                                <div className="space-y-1">
+                                    <input type="text" id="prompt" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Optional: add details, e.g., 'in a neon city'" className="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 focus:ring-pink-500 focus:border-pink-500 transition"/>
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        <span className="font-medium">Details Text Tips:</span>
+                                        <br/>
+                                        This field is optional — you don't need it to generate an image.
+                                        <br/><br/>
+                                        If you'd like to guide the AI more precisely, you can describe extra scene details like:
+                                        place, time, mood, actions, character movement, background elements, or anything else you imagine.
+                                        <br/><br/>
+                                        For best results, follow this structure:
+                                        <br/>
+                                        "in a [place], during [time/mood], doing [action]"
+                                    </p>
+                                </div>
                                 <button onClick={handleGenerate} disabled={isGenerating} className="w-full flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 transition-all text-white font-bold py-3 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
                                     {isGenerating ? <Spinner /> : <Zap size={20}/>}
                                     <span>{isGenerating ? 'Generating...' : 'Generate Image'}</span>
