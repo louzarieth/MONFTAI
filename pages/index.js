@@ -28,6 +28,7 @@ const MONAD_TESTNET_CONFIG = {
     blockExplorerUrls: ["https://testnet.monadexplorer.com/"],
 };
 
+
 const genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 export default function Home() {
