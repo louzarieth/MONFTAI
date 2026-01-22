@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Toaster, toast } from 'sonner';
 import { Wind, Image as ImageIcon, Zap, CheckCircle, Link as LinkIcon } from 'lucide-react';
 import { BrowserProvider, Contract } from 'ethers';
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai'; 
 
 // Add your Pinata API credentials here
 // Pinata API keys from environment variables
