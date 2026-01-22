@@ -10,7 +10,7 @@ const PINATA_API_KEY = process.env.NEXT_PUBLIC_PINATA_API_KEY;
 const PINATA_SECRET_API_KEY = process.env.NEXT_PUBLIC_PINATA_SECRET_API_KEY;
 
 import Header from '../components/Header';
-import ImageUploader from '../components/ImageUploader';
+import ImageUploader from '../components/ImageUploader'; 
 import WalletSelectionModal from '../components/WalletSelectionModal';
 import Spinner from '../components/Spinner';
 
